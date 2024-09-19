@@ -77,10 +77,10 @@ source_chunks=split_text(database)
 # Путь к файлам индекса
 faiss_file = os.path.join(folder_path, f"{index_name}.faiss")
 pkl_file = os.path.join(folder_path, f"{index_name}.pkl")
-api_key = os.environ.get("GPT_SECRET_KEY")
-embeddings = OpenAIEmbeddings(openai_api_key=api_key)
-db = FAISS.from_documents(source_chunks, embeddings)
-db.save_local(folder_path=folder_path, index_name=index_name)
+# api_key = os.environ.get("GPT_SECRET_KEY")
+# embeddings = OpenAIEmbeddings(openai_api_key=api_key, model="text-embedding-3-large")
+# db = FAISS.from_documents(source_chunks, embeddings)
+# db.save_local(folder_path=folder_path, index_name=index_name)
 
 
 
