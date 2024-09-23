@@ -3,7 +3,7 @@ name: Build and Push Docker Image
 on:
   push:
     branches:
-      - main  # Укажите ветку, которую хотите отслеживать
+      - main  # Ветка для отслеживания изменений
 
 jobs:
   build:
@@ -27,4 +27,8 @@ jobs:
       with:
         context: .
         push: true
-        tags: your-dockerhub-username/your-image-name:latest  # Укажите свой username и имя образа
+        tags: your-dockerhub-username/your-image-name:latest
+
+    # Шаг для тестирования
+    - name: Test Docker Image
+      run: docker run --rm your-dockerhub-username/your-image-name:latest poetry run python bot9.py
