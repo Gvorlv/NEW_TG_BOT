@@ -9,7 +9,6 @@ from pydub import AudioSegment
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from io import BytesIO
-from gtts import gTTS
 from typing import Dict
 from telegram import Update
 from telegram.constants import ParseMode
@@ -29,25 +28,17 @@ from telegram.ext import (
 )
 from telegram import InlineKeyboardMarkup
 from pydub.playback import play
-import requests
-import pickle
-import pprint
 import json
-import aiohttp
-import httpx
-import time
 from datetime import datetime
 from telegram.request import HTTPXRequest  # Импортируем HTTPXRequest для кастомизации
 
 load_dotenv()
 
-##########
+# Устанавливаем параметры логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get("TOKEN")
-GPT_SECRET_KEY = os.environ.get("GPT_SECRET_KEY")
-os.environ["OPENAI_API_KEY"] = GPT_SECRET_KEY
 
 # Создаем объект бота без дополнительных параметров таймаута
 bot = Bot(token=TOKEN)
@@ -123,9 +114,11 @@ def escape_markdown(text: str):
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
 
+# Создаем базу данных для хранения вопросов и ответов
 def create_database():
     conn = sqlite3.connect('questions.db')
     c = conn.cursor()
+    # Создаем таблицу для хранения вопросов, ответов и оценок
     c.execute('''CREATE TABLE IF NOT EXISTS questions (
                  id INTEGER PRIMARY KEY,
                  user_id INTEGER,
@@ -140,9 +133,11 @@ def create_database():
 
 create_database()
 
+# Функция для сохранения вопроса пользователя в базу данных
 def save_question(user_id: int, question: str):
     conn = sqlite3.connect('questions.db')
     c = conn.cursor()
+    # Вставляем новый вопрос в таблицу
     c.execute('''INSERT INTO questions (user_id, question, question_time)
                  VALUES (?, ?, datetime('now'))''', (user_id, question))
     conn.commit()
@@ -150,55 +145,48 @@ def save_question(user_id: int, question: str):
     conn.close()
     return question_id
 
+# Функция для сохранения ответа на вопрос
 def save_answer(question_id: int, answer: str):
     conn = sqlite3.connect('questions.db')
     c = conn.cursor()
+    # Обновляем ответ на вопрос
     c.execute('''UPDATE questions
                  SET answer = ?, answer_time = datetime('now')
                  WHERE id = ?''', (answer, question_id))
     conn.commit()
     conn.close()
 
+# Функция для сохранения оценки ответа
 def save_rating(question_id: int, rating: int):
     conn = sqlite3.connect('questions.db')
     c = conn.cursor()
+    # Обновляем оценку для вопроса
     c.execute('''UPDATE questions
                  SET rating = ?
                  WHERE id = ?''', (rating, question_id))
     conn.commit()
     conn.close()
 
-
+# Путь к базе данных FAISS и имя индекса
 db_path = 'faiss_index'
 index_name = "db_from_texts_PP"
 new_db = FAISS.load_local(db_path, embeddings, index_name, allow_dangerous_deserialization=True)
 
-
+# Асинхронная функция для получения ответа от модели
 async def get_answer(text: str, gpt_context: str='', clients_goods: str='')->str: ####
     logger.info(f'запуск функции [get_answer] {text}')
-    # db_path = 'faiss_index'
-    # index_name = "db_from_texts_PP"
-    # new_db = FAISS.load_local(db_path, embeddings, index_name, allow_dangerous_deserialization=True)
-    
-    # if clients_goods:
-    #     logger.info(f'вывод на печать [clients_goods] {clients_goods}')
-    #     docs = await new_db.asimilarity_search_with_score(clients_goods, include_metadata=True, k=top_similar_documents)
-    # else:
-    #     docs = []
+    # Поиск схожих документов по контексту
     docs = []
-    #docs = [doc for doc, score in docs if score > trash_hold]
     docs_direct = await new_db.asimilarity_search_with_score(text, include_metadata=True, k=top_similar_documents)
     docs_direct = [doc for doc, score in docs_direct if score > trash_hold]
     docs.extend(docs_direct)
-    
+    # Формируем контент вопроса и запрашиваем у модели ответ
     message_content = ' '.join([f'\nОписание регламентов №{i+1}\n=====================' + doc.page_content + '\n' for i, doc in enumerate(docs)])
     question_content = f"Ответь на вопрос пользователя на основании представленных описаний регламентов. Документы с описаниями регламентов для ответа клиенту: {message_content}\n\n"
- 
     question_content_2 = question_content + f"Текущий вопрос пользователя: \n{text}"
     text_user = question_content_2
     print(f'{text_user} \n')
-    
-    
+    # Проверка и добавление контекста
     if len(gpt_context) > 0:
         text_user = question_content + "\n\n" + gpt_context + "\n\n" + f"Актуальный вопрос пользователя: \n{text}."
         messages = [
@@ -214,6 +202,7 @@ async def get_answer(text: str, gpt_context: str='', clients_goods: str='')->str
     print("Сообщения для API OpenAI:", messages)
     
     try:
+        # Запрос к модели OpenAI
         completion = await client.chat.completions.create(
             model=model,
             messages=messages,
@@ -227,7 +216,7 @@ async def get_answer(text: str, gpt_context: str='', clients_goods: str='')->str
     answer_text = completion.choices[0].message.content
     print(f'{answer_text} \n')
     return answer_text
-
+# Определение роли системы и навыков для саммаризации диалогов
 system_summarize = '''# Character
 Ты - нейро-саммаризатор. Твоя задача - саммаризировать диалог, который тебе пришел. 
 
@@ -242,6 +231,7 @@ system_summarize = '''# Character
 - Соблюдать формат кратких саммаризаций.
 - Отражать имена пользователей, если упомянуты.'''
 
+# Асинхронная функция для создания саммари на основе диалога
 async def summarize_questions(dialog: str, context: str)->str:
     messages = [
         {"role": "system", "content": system_summarize},
@@ -256,7 +246,8 @@ async def summarize_questions(dialog: str, context: str)->str:
     #print("*****1111****,", type(completion.choices[0].message.content))
     return completion.choices[0].message.content
 
-async def create_completion(model, system, content, temperature):
+# Асинхронная функция для создания ответа 
+async def create_completion(model, system, content, temperature: int=0):
     messages = [
         {'role': 'system', 'content': system},
         {'role': 'user', 'content': content}
@@ -264,16 +255,18 @@ async def create_completion(model, system, content, temperature):
     completion = await client.chat.completions.create(
     model=model,
     messages=messages,
-    temperature=0
+    temperature=temperature
     )
     return completion.choices[0].message.content
 
+# Асинхронная функция для анализа интересующих вопросов
 async def run_model_analyser(topic:str, existing_goods: Optional[str]) -> str:
     logger.info(f'Параметр existing_goods функции run_model_analyser {existing_goods}')
     #content = f'Выдели в сообщении клиента интересующие его вопросы по регламентам. Выдели только те вопросы, которые не входят в список "{existing_goods}". Перечисли вопросы через запятую. Если новых в списке нет, выведи пустое значение. То, что говорил клиент: ' + " ".join(topic)
     content = f'Выдели в сообщении клиента интересующие его вопросы по регламентам.  Перечисли вопросы через запятую.  То, что говорил клиент: ' + " ".join(topic)
     return await create_completion(model, system_analyser, content, 0)
 
+# Функция для повторной отправки сообщения при возникновении таймаута
 async def retry_send_message(context, chat_id, text, reply_to_message_id: Optional[str] = None, parse_mode=None, max_retries=3):
     """
     Функция для повторной отправки сообщения при возникновении таймаута.
@@ -291,6 +284,7 @@ async def retry_send_message(context, chat_id, text, reply_to_message_id: Option
 
 from telegram.ext import filters
 
+# Обработка текстового сообщения пользователя
 async def gpt(update: Update, context: CallbackContext):
     logger.info(f'запуск функции [gpt] это update-{update}, это context-{context}')
     clients_goods = ""
@@ -356,78 +350,58 @@ async def gpt(update: Update, context: CallbackContext):
             reply_markup=InlineKeyboardMarkup([])  # Удаление старых кнопок
         )
 
-
-async def handle_rating(update: Update, context: CallbackContext):
-    rating_text = update.message.text
-    question_id = context.user_data.get('current_question_id')
+# # Обработка и сохранение оценки от пользователя
+# async def handle_rating(update: Update, context: CallbackContext):
+#     rating_text = update.message.text
+#     question_id = context.user_data.get('current_question_id')
     
-    if question_id is not None:
-        try:
-            rating = int(rating_text)
-            if rating in [1, 2, 3]:
-                save_rating(question_id, rating)
-                await update.message.reply_text(
-                    "Спасибо за вашу оценку!",
-                    reply_markup=InlineKeyboardMarkup([])  # Удаление старых кнопок
-                )
-            else:
-                await update.message.reply_text(
-                    "Пожалуйста, введите оценку в формате (от 1 до 3).",
-                    reply_markup=InlineKeyboardMarkup([])  # Удаление старых кнопок
-                )
-        except ValueError:
-            await update.message.reply_text(
-                "Пожалуйста, введите числовое значение от 1 до 3.",
-                reply_markup=InlineKeyboardMarkup([])  # Удаление старых кнопок
-            )
-    else:
-        await update.message.reply_text(
-            "Не найден вопрос для оценки. Пожалуйста, задайте новый вопрос.",
-            reply_markup=InlineKeyboardMarkup([])  # Удаление старых кнопок
-        )
-    # Очистка текущего вопроса из контекста
-    context.user_data['current_question_id'] = None
+#     # Проверка на наличие оценки в контексте
+#     if question_id is not None:
+#         try:
+#             rating = int(rating_text)
+#             if rating in [1, 2, 3]:
+#                 save_rating(question_id, rating)
+#                 await update.message.reply_text(
+#                     "Спасибо за вашу оценку!",
+#                     reply_markup=InlineKeyboardMarkup([])  # Удаление старых кнопок
+#                 )
+#             else:
+#                 await update.message.reply_text(
+#                     "Пожалуйста, введите оценку в формате (от 1 до 3).",
+#                     reply_markup=InlineKeyboardMarkup([])  # Удаление старых кнопок
+#                 )
+#         except ValueError:
+#             await update.message.reply_text(
+#                 "Пожалуйста, введите числовое значение от 1 до 3.",
+#                 reply_markup=InlineKeyboardMarkup([])  # Удаление старых кнопок
+#             )
+#     else:
+#         await update.message.reply_text(
+#             "Не найден вопрос для оценки. Пожалуйста, задайте новый вопрос.",
+#             reply_markup=InlineKeyboardMarkup([])  # Удаление старых кнопок
+#         )
+#     # Очистка текущего вопроса из контекста
+#     context.user_data['current_question_id'] = None
 
-# def main():
-#     request = HTTPXRequest(http_version="1.1", connect_timeout=30.0, read_timeout=30.0)
-#     application = Application.builder().token(TOKEN).request(request).build()
-
-#     job_queue = application.job_queue
-#     job_queue.run_repeating(callback_daily, interval=43200, first=60)
-    
-#     application.add_handler(CommandHandler("start", start, block=False))
-#     application.add_handler(CommandHandler("help", help, block=False))
-#     application.add_handler(CommandHandler("status", status, block=False))
-#     application.add_handler(CommandHandler("data", data, block=False))
-#     application.add_handler(CommandHandler("reset", reset, block=False))
-#     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.REPLY, gpt, block=False))
-#     application.add_handler(MessageHandler(filters.VOICE, gpt_v, block=False))
-#     application.add_handler(MessageHandler(filters.Regex(r'^\d+$'), handle_rating, block=False))
-#     application.add_handler(ChatMemberHandler(welcome_message, ChatMemberHandler.CHAT_MEMBER))
-    
-#     application.run_polling(allowed_updates=Update.ALL_TYPES)
-#     print('Бот остановлен')
-
-
-
+#обработка голосового сообщения
 async def gpt_v(update, context):
     clients_goods = ""
     user_id = update.message.from_user.id
     if context.bot_data[update.message.from_user.id]['voprosi'] > 0:
         first_message = await update.message.reply_text('Ваш запрос обрабатывается, пожалуйста подождите...', reply_to_message_id=update.message.message_id)
     
-        file = await update.message.voice.get_file()
-        voice_as_byte = await file.download_as_bytearray()
+        file = await update.message.voice.get_file() # Получаем файл с помощью метода
+        voice_as_byte = await file.download_as_bytearray() # Конвертируем file в массив байт
 
-        byte_voice = BytesIO(voice_as_byte)
-        audio = AudioSegment.from_file(byte_voice, format='ogg')
-        audio.export('voice_message.mp3', format='mp3') 
+        byte_voice = BytesIO(voice_as_byte) #Оборачиваем voice_as_byte в объект BytesIO
+        audio = AudioSegment.from_file(byte_voice, format='ogg') # Преобразуем в аудиофайл с помощью библиотеки pydub 
+        audio.export('voice_message.mp3', format='mp3') # Сохраняем audio в аудиофайл voice_message.mp3
         audio_file = open("voice_message.mp3", "rb")
         text = await clientOAI.audio.transcriptions.create(
             model="whisper-1", 
             file=audio_file,
             response_format="text"
-        )
+        ) # MP3-файл передаётся модели OpenAI Whisper для транскрипции речи в текст
     
         question_id = save_question(user_id, text)
 
@@ -464,7 +438,7 @@ async def gpt_v(update, context):
     else:
         await update.message.reply_text('Ваши запросы на сегодня исчерпаны')
 
-
+# Обработка и сохранение оценки от пользователя
 async def handle_rating(update: Update, context: CallbackContext):
     rating_text = update.message.text
     question_id = context.user_data.get('current_question_id')
@@ -483,6 +457,7 @@ async def handle_rating(update: Update, context: CallbackContext):
         await update.message.reply_text("Не найден вопрос для оценки. Пожалуйста, задайте новый вопрос.")
 
 
+# Функция запуска и авторизации пользователя
 async def start(update: Update, context: CallbackContext):
     user_id = update.message.from_user.id
     username = update.message.from_user.username or update.message.from_user.first_name
@@ -493,7 +468,7 @@ async def start(update: Update, context: CallbackContext):
     if str(user_id) not in  authorized_users:
     # Log unauthorized access attempt
         with open('users.txt', 'a') as file:
-            file.write(f"{datetime.now()} - Received /start command from user_id: {user_id} (username: {username})\n")
+            file.write(f"{datetime.now()} - Принята команда /start от user_id: {user_id} (username: {username})\n")
         
         await update.message.reply_text('Обратитесь к администратору для авторизации')
         return
@@ -506,7 +481,7 @@ async def start(update: Update, context: CallbackContext):
     user = update.effective_user
     await update.message.reply_html(f"Добро пожаловать, {user.mention_html()}! Это консультант по регламентам Здоровье животных. Ты можешь мне задать любой вопрос по данной теме.")
 
-
+# Сброс данных пользователя
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
     del context.bot_data[update.message.from_user.id]
     if update.message.from_user.id not in context.bot_data.keys():
@@ -515,18 +490,18 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.bot_data[update.message.from_user.id]['text'] = ''
     await update.message.reply_text('Данные очищены')
 
-
+# Сохранение данных в файл
 async def data(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open ('data.json', 'w', encoding='utf-8') as fp:
         json.dump(context.bot_data, fp)
     await update.message.reply_text('Данные загружены')  
 
-
+# Вспомогательная функция помощи
 async def help(update, context):
     user = update.effective_user
-    await update.message.reply_html(f'Hi, {user.mention_html()}! Поговори с консультантом, если тебе нужна помощь по строительному оборудованию и материалам')
+    await update.message.reply_html(f'Hi, {user.mention_html()}! Поговори с консультантом, если тебе нужна помощь по регламентам')
 
-
+# Приветственное сообщение для нового пользователя
 async def welcome_message(update, context):
     new_user = update.message.new_chat_members[0]
     await update.message.reply_text(chat_id=update.effective_chat.id,
@@ -534,11 +509,11 @@ async def welcome_message(update, context):
     context.bot.pin_chat_message(chat_id=update.effective_chat.id,
         message_id=update.message.message_id)
 
-
+# Отображение статуса запросов пользователя
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f'Осталось запросов: {context.bot_data[update.message.from_user.id]["voprosi"]}')
 
-
+# Ежедневное обновление запросов пользователей
 async def callback_daily(context: ContextTypes.DEFAULT_TYPE):
     if context.bot_data != {}:
             for key in context.bot_data:
@@ -547,7 +522,7 @@ async def callback_daily(context: ContextTypes.DEFAULT_TYPE):
     else:
             print('Не найдено ни одного пользователя')
 
-
+# Главная функция запуска бота
 def main():
     request = HTTPXRequest(http_version="1.1", connect_timeout=30.0, read_timeout=30.0)
     application = Application.builder().token(TOKEN).request(request).build()

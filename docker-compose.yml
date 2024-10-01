@@ -1,18 +1,14 @@
-version: '3.8'
 services:
   bot:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"  # Убедитесь, что этот порт совпадает с используемым ботом, если он имеет HTTP интерфейс
+      - "8000:8000"
     volumes:
-      - ./faiss_index:/app/faiss_index  # Монтируем директорию с базой данных
-      - ./data.json:/app/data.json  # Если нужно хранить файл с данными между перезапусками
-      - ./access.txt:/app/access.txt  # Файл с доступом
-    environment:
-      - PYTHONUNBUFFERED=1
-      - TOKEN=${TOKEN}  # Переменные окружения, которые нужно передать в контейнер
-      - GPT_SECRET_KEY=${GPT_SECRET_KEY}
-      - OPENAI_API_KEY=${GPT_SECRET_KEY}
-    restart: always  # Автоматический перезапуск контейнера в случае падения
+      - ./faiss_index:/app/faiss_index
+      - ./data.json:/app/data.json
+      - ./access.txt:/app/access.txt
+    env_file:
+      - .env
+    restart: always

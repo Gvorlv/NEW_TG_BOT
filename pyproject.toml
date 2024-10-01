@@ -11,14 +11,10 @@ openai = "^1.36.0"
 langchain-community = "^0.2.7"
 python-dotenv = "^1.0.1"
 python-telegram-bot = {extras = ["job-queue"], version = "^21.4"}
-gtts = "^2.5.1"
 pydub = "^0.25.1"
 langchain-openai = "^0.1.17"
 faiss-cpu = "^1.8.0.post1"
 
-
-[tool.poetry.group.dev.dependencies]
-ipykernel = "^6.29.5"
 
 [build-system]
 requires = ["poetry-core"]

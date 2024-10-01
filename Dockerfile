@@ -15,7 +15,7 @@ WORKDIR /app
 COPY pyproject.toml poetry.lock /app/
 
 # Установка зависимостей проекта через Poetry
-RUN poetry config virtualenvs.create false && poetry install --no-dev
+RUN poetry config virtualenvs.create false && poetry install --only=main
 
 # Копируем все файлы проекта в контейнер
 COPY . /app
@@ -24,7 +24,7 @@ COPY . /app
 RUN chmod -R 777 /app/faiss_index
 
 # Открываем необходимые порты (если используются)
-EXPOSE 8000
+# EXPOSE 8000
 
 # Команда для запуска приложения
 CMD ["poetry", "run", "python", "bot9.py"]
