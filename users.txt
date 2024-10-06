@@ -1,7 +1,2 @@
-2024-07-22 10:32:59.540970 - Received /start command from user_id: 283252552
-2024-07-22 12:40:11.052298 - Received /start command from user_id: 1120207101
-2024-08-07 13:23:34.500407 - Received /start command from user_id: 957010150
-2024-08-07 13:41:01.730253 - Received /start command from user_id: 2138202954
-2024-08-07 14:59:50.616385 - Received /start command from user_id: 1027344018 (username: SoVavet)
-2024-08-07 15:02:07.389868 - Received /start command from user_id: 1027344018 (username: SoVavet)
+
 2024-08-07 15:02:29.470059 - Received /start command from user_id: 1027344018 (username: SoVavet)
