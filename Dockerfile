@@ -1,5 +1,5 @@
 # Используем базовый образ Python
-FROM python:3.9-slim
+FROM python:3.9
 
 # Установка необходимых инструментов и зависимостей
 RUN apt-get update && apt-get install -y \

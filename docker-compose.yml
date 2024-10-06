@@ -9,6 +9,8 @@ services:
       - ./faiss_index:/app/faiss_index
       - ./data.json:/app/data.json
       - ./access.txt:/app/access.txt
+      - ./questions.db:/app/questions.db
+      - ./users.txt:/app/users.txt
     env_file:
       - .env
     restart: always
